@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web OJ V50 (支援瀏覽器上下頁)</title>
+    <title>Web OJ V51 (瀏覽器版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     <style>
         :root {
-            /* === V50: Color Variables === */
+            /* === V51: Color Variables === */
             --bg-page-light: #f3f4f6;
             --bg-pane-light: #e0e0e0;   
             --text-pane-light: #1f2937; 
@@ -226,7 +226,6 @@
 <div id="view-problem-list">
     <div class="page-header">
         <div style="display:flex; align-items:center; gap:15px;">
-            <button class="btn btn-outline" onclick="goCategoryList()">⬅ 返回分類</button>
             <h2 id="currentCatTitle" style="margin:0; color:var(--accent);">分類名稱</h2>
         </div>
         <div style="display:flex; gap:10px;">
@@ -243,7 +242,6 @@
 <div id="view-workspace">
     <div class="ws-header">
         <div style="display:flex; align-items:center;">
-            <button class="header-btn btn-sm" onclick="goProblemList()" style="margin-right:15px;">← 返回列表</button>
             <span id="wsTitle" style="font-weight:bold; font-size:1.1rem;">題目名稱</span>
         </div>
         <div style="display:flex; gap:10px;">
@@ -332,7 +330,7 @@
 
 <div id="backupModal" class="modal">
     <div class="modal-box" style="width:500px;">
-        <h3>📦 全站資料備份/還原 (V50)</h3>
+        <h3>📦 全站資料備份/還原 (V51)</h3>
         <textarea id="backupStr" style="width:100%; height:100px; margin-bottom:10px;" placeholder="Backup Code (Base64)..."></textarea>
         
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-bottom:15px;">
@@ -386,9 +384,9 @@
     let db = { categories: [], problems: [] };
     let currentCatId = null;
     let currentProbId = null;
-    let isLocalMode = false; // V49/V50: 離線模式開關
+    let isLocalMode = false;
     
-    // V48/V49/V50: Multi-lang defaults
+    // V48/V49/V50/V51: Multi-lang defaults
     const defaultTemplates = {
         cpp: `#include <iostream>\nusing namespace std;\n\nint main() {\n    // C++ Solution\n    \n    return 0;\n}`,
         python: `import sys\n\n# Python Solution\ndef main():\n    # Read input from stdin\n    lines = sys.stdin.read().splitlines()\n    # Write logic here\n    pass\n\nif __name__ == "__main__":\n    main()`
@@ -448,13 +446,29 @@
         // === 綁定瀏覽器上下頁事件 ===
         window.addEventListener('popstate', handlePopState);
         
-        // 檢查頁面重新整理時是否保留了歷史狀態
-        if (history.state && history.state.view) {
-            handlePopState({ state: history.state });
+        // === V51: 檢查是否有帶入網址參數 (開啟新分頁作答) ===
+        const urlParams = new URLSearchParams(window.location.search);
+        const probIdParam = urlParams.get('probId');
+
+        if (probIdParam) {
+            // 如果是在新分頁開啟特定題目
+            const targetProblem = db.problems.find(x => x.id === probIdParam);
+            if (targetProblem) {
+                history.replaceState({ view: 'workspace', probId: probIdParam, fromAdmin: false }, '', '');
+                _enterWorkspaceInternal(probIdParam, false);
+            } else {
+                alert("找不到該題目！將返回首頁。");
+                window.location.href = window.location.pathname; // 返回無參數首頁
+            }
         } else {
-            history.replaceState({ view: 'categories' }, '', '');
-            renderCategoryList();
-            showView('view-categories');
+            // 正常載入流程 (首頁)
+            if (history.state && history.state.view) {
+                handlePopState({ state: history.state });
+            } else {
+                history.replaceState({ view: 'categories' }, '', '');
+                renderCategoryList();
+                showView('view-categories');
+            }
         }
     };
 
@@ -510,7 +524,7 @@
             if (confirm("再次確認：您真的要刪除所有資料嗎？")) {
                 localStorage.removeItem('oj_v15_data');
                 localStorage.removeItem('oj_v8_data'); 
-                location.reload();
+                window.location.href = window.location.pathname; // 重製後回到首頁
             }
         }
     }
@@ -597,22 +611,13 @@
         if(viewId === 'view-workspace' && editor) setTimeout(() => editor.resize(), 50);
     }
 
-    // === 改寫為支援 History API 的導航函數 ===
-    function goCategoryList() { 
-        history.pushState({ view: 'categories' }, '', '');
-        currentCatId = null; renderCategoryList(); showView('view-categories'); 
-    }
-    
+    // === 導航函數 ===
     function openCategory(id) { 
         history.pushState({ view: 'problem-list', catId: id }, '', '');
         currentCatId = id; renderProblemList(); showView('view-problem-list'); 
     }
 
-    function goProblemList() { 
-        history.pushState({ view: 'problem-list', catId: currentCatId }, '', '');
-        currentProbId = null; renderProblemList(); showView('view-problem-list'); 
-    }
-
+    // 進入作答區 (僅供 Admin 儲存返回時使用，列表點擊會開啟新分頁)
     function enterWorkspace(id, fromAdmin = false) {
         history.pushState({ view: 'workspace', probId: id, fromAdmin: fromAdmin }, '', '');
         _enterWorkspaceInternal(id, fromAdmin);
@@ -626,12 +631,10 @@
         if (p.tpl_python === undefined) p.tpl_python = defaultTemplates.python;
 
         if (!fromAdmin) {
-            // 從列表進入時，強制還原為預設範本
             p.code_cpp = p.tpl_cpp;
             p.code_python = p.tpl_python;
             saveToLocal();
         } else {
-            // 從設定頁返回時，保留作答進度
             if (p.code_cpp === undefined) p.code_cpp = p.tpl_cpp;
             if (p.code_python === undefined) p.code_python = p.tpl_python;
         }
@@ -733,7 +736,15 @@
             catProblems.forEach(p => {
                 const item = document.createElement('div');
                 item.className = 'prob-item'; item.setAttribute('draggable', isProbSortMode); item.dataset.id = p.id;
-                item.onclick = (e) => { if(!isProbSortMode && !e.target.closest('button')) enterWorkspace(p.id); };
+                
+                // === V51: 點擊開啟新分頁 (帶入網址參數) ===
+                item.onclick = (e) => { 
+                    if(!isProbSortMode && !e.target.closest('button')) {
+                        const baseUrl = window.location.href.split('?')[0];
+                        window.open(`${baseUrl}?probId=${p.id}`, '_blank');
+                    } 
+                };
+                
                 item.innerHTML = `
                     <div style="flex:1; overflow:hidden;">
                         <div class="prob-title">${p.title}</div>
@@ -775,7 +786,12 @@
         } 
     }
     
-    function editProblemInList(e, id) { e.stopPropagation(); currentProbId = id; goToAdmin(); }
+    function editProblemInList(e, id) { 
+        e.stopPropagation(); 
+        // 編輯時我們依然保持在目前分頁開啟設定，避免過度開新分頁
+        currentProbId = id; 
+        goToAdmin(); 
+    }
     function deleteProblemInList(e, id) { e.stopPropagation(); if(confirm("確定刪除？")) { db.problems = db.problems.filter(p => p.id !== id); saveToLocal(); renderProblemList(); } }
     function updateSortUI() {
         const catBtn = document.getElementById('catSortBtn'); const probBtn = document.getElementById('probSortBtn');
@@ -1070,7 +1086,7 @@
         if(!confirm("這將覆蓋現有所有資料，確定？")) return;
         try {
             const data = JSON.parse(decodeURIComponent(atob(document.getElementById('backupStr').value)));
-            if(data.categories && data.problems) { db = data; saveToLocal(); location.reload(); } else { throw new Error(); }
+            if(data.categories && data.problems) { db = data; saveToLocal(); window.location.href = window.location.pathname; } else { throw new Error(); }
         } catch(e) { alert("代碼無效"); }
     }
 </script>
