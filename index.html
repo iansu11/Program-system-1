@@ -233,32 +233,6 @@
         .admin-col-right .tc-item { background: #1e1e1e; border: 1px solid #333; border-left: 3px solid var(--warning); padding:10px; margin-bottom:8px; border-radius:4px; }
         .admin-col-right .tc-item textarea { background: #151515; border: 1px solid #444; min-height: 38px; max-height: 130px; resize: vertical; overflow-y: auto; }
 
-        /* === 群組區塊樣式 === */
-        .group-section {
-            margin-bottom: 40px;
-            padding: 20px;
-            background: rgba(255,255,255,0.5);
-            border-radius: 12px;
-            border-left: 5px solid var(--accent);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-        }
-        .group-title {
-            font-size: 1.6rem;
-            color: var(--bg-header-blue);
-            margin-bottom: 20px;
-            font-weight: bold;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .group-title::after {
-            content: "";
-            flex: 1;
-            height: 2px;
-            background: var(--border-light);
-            opacity: 0.5;
-        }
-
         /* === Modals === */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
         .modal-box { background: #1e1e1e; color: #e0e0e0; padding: 25px; width: 400px; border-radius: 12px; border: 1px solid #333; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
@@ -275,9 +249,9 @@
         <p style="font-size: 1.2rem; opacity: 0.9; margin-bottom: 30px;">請選擇您要進入的題庫區塊</p>
         
         <div class="portal-grid">
-            <button class="bank-btn" onclick="fetchAndLoadBank('program-1.json')">
-                <span>📚 114-第一學期程式設計</span>
-                <span class="bank-desc">載入 program-1.json</span>
+            <button class="bank-btn" onclick="fetchAndLoadBank('problems.json')">
+                <span>📚 總題庫系統</span>
+                <span class="bank-desc">載入 problems.json</span>
             </button>
             
             <button class="bank-btn" onclick="fetchAndLoadBank('exam.json')">
@@ -416,7 +390,7 @@
 
 <div id="backupModal" class="modal">
     <div class="modal-box" style="width:500px;">
-        <h3>📦 資料備份/還原 (V54)</h3>
+        <h3>📦 全站資料備份/還原 (V54)</h3>
         <textarea id="backupStr" style="width:100%; height:100px; margin-bottom:10px;" placeholder="Backup Code (Base64)..."></textarea>
         
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-bottom:15px;">
@@ -484,9 +458,11 @@
     let isProbSortMode = false;
     let currentFontSize = 16;
     
+    // Admin state
     let adminTempTemplates = { cpp: "", python: "" };
     let currentAdminLang = 'cpp';
 
+    // === V54: 初始化邏輯 (判斷是否顯示 Portal 且無閃爍) ===
     window.onload = async function() {
         editor = ace.edit("editor");
         editor.setTheme("ace/theme/twilight");
@@ -525,13 +501,16 @@
                 finishLoading(); 
             }
         } else {
+            // 如果完全沒有資料，直接顯示入口大廳 (Portal)
             showView('view-portal');
         }
     };
 
+    // === V54: 點擊入口大廳按鈕後，抓取指定的 JSON ===
     async function fetchAndLoadBank(jsonFile) {
         const btnText = event.target.closest('.bank-btn').querySelector('span').innerText;
         try {
+            // 加上隨機參數避免 GitHub Pages 嚴重的快取問題
             const noCacheUrl = jsonFile + '?t=' + new Date().getTime();
             const response = await fetch(noCacheUrl);
             
@@ -805,43 +784,29 @@
         container.addEventListener('dragover', (e) => { e.preventDefault(); });
     }
 
+    // === V54 核心功能：直接渲染純分類 (移除群組外框) ===
     function toggleCatSortMode() { isCatSortMode = !isCatSortMode; updateSortUI(); renderCategoryList(); }
     
     function renderCategoryList() {
         const container = document.getElementById('groupedCategoryContainer');
         container.innerHTML = '';
 
-        if (isCatSortMode) {
-            container.innerHTML = '<div style="color:var(--warning); text-align:center; margin-bottom:20px;">⚠️ 注意：目前群組模式下的拖曳排序為實驗功能，建議直接在 Admin 或 JSON 調整。</div>';
-        }
+        const grid = document.createElement('div');
+        grid.className = 'cat-grid';
+        grid.id = 'main-cat-grid';
+        
+        if (isCatSortMode) { grid.classList.add('sort-mode'); enableDragSort(grid.id, 'cat-card', saveCategoryOrder); }
 
-        const groupNames = [...new Set(db.categories.map(c => c.group || "其他分類"))];
-
-        groupNames.forEach((groupName, index) => {
-            const section = document.createElement('div');
-            section.className = 'group-section';
-            section.innerHTML = `<div class="group-title">${groupName}</div>`;
-
-            const grid = document.createElement('div');
-            grid.className = 'cat-grid';
-            grid.id = `cat-grid-${index}`;
-            
-            if (isCatSortMode) { grid.classList.add('sort-mode'); enableDragSort(grid.id, 'cat-card', saveCategoryOrder); }
-
-            const filteredCats = db.categories.filter(c => (c.group || "其他分類") === groupName);
-            
-            filteredCats.forEach(cat => {
-                const probCount = db.problems.filter(p => p.catId === cat.id).length;
-                const card = document.createElement('div');
-                card.className = 'cat-card'; card.setAttribute('draggable', isCatSortMode); card.dataset.id = cat.id;
-                card.innerHTML = `<div class="cat-title">${cat.name}</div><div class="cat-count">${probCount} 題</div><div class="cat-actions"><button class="btn btn-outline btn-sm" onclick="editCategory(event, '${cat.id}')">✏️</button><button class="btn btn-outline btn-sm" onclick="deleteCategory(event, '${cat.id}')" style="color:#f44747; border-color:#f44747;">🗑️</button></div>`;
-                card.onclick = (e) => { if(!isCatSortMode && !e.target.closest('button')) openCategory(cat.id); };
-                grid.appendChild(card);
-            });
-
-            section.appendChild(grid);
-            container.appendChild(section);
+        db.categories.forEach(cat => {
+            const probCount = db.problems.filter(p => p.catId === cat.id).length;
+            const card = document.createElement('div');
+            card.className = 'cat-card'; card.setAttribute('draggable', isCatSortMode); card.dataset.id = cat.id;
+            card.innerHTML = `<div class="cat-title">${cat.name}</div><div class="cat-count">${probCount} 題</div><div class="cat-actions"><button class="btn btn-outline btn-sm" onclick="editCategory(event, '${cat.id}')">✏️</button><button class="btn btn-outline btn-sm" onclick="deleteCategory(event, '${cat.id}')" style="color:#f44747; border-color:#f44747;">🗑️</button></div>`;
+            card.onclick = (e) => { if(!isCatSortMode && !e.target.closest('button')) openCategory(cat.id); };
+            grid.appendChild(card);
         });
+
+        container.appendChild(grid);
     }
 
     function saveCategoryOrder() { 
@@ -855,8 +820,7 @@
         if(isCatSortMode) return; 
         const name = prompt("新分類名稱："); 
         if(!name) return;
-        const group = prompt("所屬大群組名稱 (例如: 正式考試、平時練習)：", "其他分類");
-        db.categories.push({ id: Date.now().toString(), name: name, group: group || "其他分類" }); 
+        db.categories.push({ id: Date.now().toString(), name: name }); 
         saveToLocal(); 
         renderCategoryList(); 
     }
@@ -865,9 +829,7 @@
         const cat = db.categories.find(c => c.id === id); 
         const newName = prompt("修改分類名稱：", cat.name); 
         if(newName) { 
-            const newGroup = prompt("修改所屬大群組名稱：", cat.group || "其他分類");
             cat.name = newName; 
-            cat.group = newGroup || "其他分類";
             saveToLocal(); 
             renderCategoryList(); 
         } 
