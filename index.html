@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cloud Judge V53 (多重題庫入口版)</title>
+    <title>解題系統 V54 (多重題庫入口版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     <style>
         :root {
-            /* === V53: Color Variables === */
+            /* === V54: Color Variables === */
             --bg-page-light: #f3f4f6;
             --bg-pane-light: #e0e0e0;   
             --text-pane-light: #1f2937; 
@@ -41,9 +41,9 @@
         body.resizing { cursor: row-resize !important; user-select: none; }
         body.resizing iframe { pointer-events: none; }
 
-        /* === V53: 題庫入口大廳專屬樣式 === */
+        /* === V54: 題庫入口大廳專屬樣式 === */
         #view-portal {
-            display: flex;
+            display: none; /* 預設隱藏以解決載入時閃爍的問題 */
             flex-direction: column;
             align-items: center;
             justify-content: center;
@@ -134,7 +134,7 @@
         /* === Shared Page Header === */
         .page-header {
             display: flex; justify-content: space-between; align-items: center; 
-            margin-bottom: 30px; border-bottom: 1px solid var(--border-light); padding-bottom: 15px; flex-shrink: 0;
+            margin-bottom: 20px; border-bottom: 1px solid var(--border-light); padding-bottom: 15px; flex-shrink: 0;
         }
         .page-header h2 { color: #111827; }
 
@@ -150,7 +150,7 @@
             box-shadow: var(--card-shadow);
         }
         .cat-card:hover { transform: translateY(-5px); border-color: var(--accent); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
-        .cat-title { font-size: 1.6rem; font-weight: bold; margin-bottom: 8px; color: #1f2937; }
+        .cat-title { font-size: 1.4rem; font-weight: bold; margin-bottom: 8px; color: #1f2937; }
         .cat-count { color: #6b7280; font-size: 1rem; }
         .cat-actions { position: absolute; top: 10px; right: 10px; display: none; gap:5px; }
         .cat-card:hover .cat-actions { display: flex; }
@@ -233,6 +233,32 @@
         .admin-col-right .tc-item { background: #1e1e1e; border: 1px solid #333; border-left: 3px solid var(--warning); padding:10px; margin-bottom:8px; border-radius:4px; }
         .admin-col-right .tc-item textarea { background: #151515; border: 1px solid #444; min-height: 38px; max-height: 130px; resize: vertical; overflow-y: auto; }
 
+        /* === 群組區塊樣式 === */
+        .group-section {
+            margin-bottom: 40px;
+            padding: 20px;
+            background: rgba(255,255,255,0.5);
+            border-radius: 12px;
+            border-left: 5px solid var(--accent);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .group-title {
+            font-size: 1.6rem;
+            color: var(--bg-header-blue);
+            margin-bottom: 20px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .group-title::after {
+            content: "";
+            flex: 1;
+            height: 2px;
+            background: var(--border-light);
+            opacity: 0.5;
+        }
+
         /* === Modals === */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
         .modal-box { background: #1e1e1e; color: #e0e0e0; padding: 25px; width: 400px; border-radius: 12px; border: 1px solid #333; display: flex; flex-direction: column; gap: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
@@ -245,7 +271,7 @@
 
 <div id="view-portal">
     <div class="portal-container">
-        <h1 style="font-size: 2.8rem; margin-bottom: 10px; letter-spacing: 2px;">🚀 Cloud Judge</h1>
+        <h1 style="font-size: 2.8rem; margin-bottom: 10px; letter-spacing: 2px;">🚀 解題系統</h1>
         <p style="font-size: 1.2rem; opacity: 0.9; margin-bottom: 30px;">請選擇您要進入的題庫區塊</p>
         
         <div class="portal-grid">
@@ -280,7 +306,7 @@
             <button class="btn btn-primary" onclick="createCategory()">+ 新增分類</button>
         </div>
     </div>
-    <div id="categoryGrid" class="cat-grid"></div>
+    <div id="groupedCategoryContainer"></div>
 </div>
 
 <div id="view-problem-list">
@@ -390,7 +416,7 @@
 
 <div id="backupModal" class="modal">
     <div class="modal-box" style="width:500px;">
-        <h3>📦 全站資料備份/還原 (V53)</h3>
+        <h3>📦 資料備份/還原 (V54)</h3>
         <textarea id="backupStr" style="width:100%; height:100px; margin-bottom:10px;" placeholder="Backup Code (Base64)..."></textarea>
         
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-bottom:15px;">
@@ -446,7 +472,7 @@
     let currentCatId = null;
     let currentProbId = null;
     let isLocalMode = false;
-    let currentBankFile = ""; // 紀錄當前載入的題庫檔案
+    let currentBankFile = ""; 
     
     const defaultTemplates = {
         cpp: `#include <iostream>\nusing namespace std;\n\nint main() {\n    // C++ Solution\n    \n    return 0;\n}`,
@@ -458,11 +484,9 @@
     let isProbSortMode = false;
     let currentFontSize = 16;
     
-    // Admin state
     let adminTempTemplates = { cpp: "", python: "" };
     let currentAdminLang = 'cpp';
 
-    // === V53: 初始化邏輯 (判斷是否顯示 Portal) ===
     window.onload = async function() {
         editor = ace.edit("editor");
         editor.setTheme("ace/theme/twilight");
@@ -483,7 +507,6 @@
         enableTabInTextarea('editTemplate');
         enableTabInTextarea('modelAnswerInput');
 
-        // 檢查瀏覽器是否有已經選定並載入過的題庫
         const saved = localStorage.getItem('oj_v15_data');
         const savedBankName = localStorage.getItem('oj_v15_bank_name'); 
         const urlParams = new URLSearchParams(window.location.search);
@@ -499,32 +522,27 @@
                 history.replaceState({ view: 'workspace', probId: probIdParam, fromAdmin: false }, '', '');
                 _enterWorkspaceInternal(probIdParam, false);
             } else {
-                finishLoading(); // 綁定事件並顯示 Categories
+                finishLoading(); 
             }
         } else {
-            // 如果完全沒有資料，直接顯示入口大廳 (Portal)
             showView('view-portal');
         }
     };
 
-    // === V53: 點擊入口大廳按鈕後，抓取指定的 JSON ===
     async function fetchAndLoadBank(jsonFile) {
         const btnText = event.target.closest('.bank-btn').querySelector('span').innerText;
         try {
-            // 加上隨機參數避免 GitHub Pages 嚴重的快取問題
             const noCacheUrl = jsonFile + '?t=' + new Date().getTime();
             const response = await fetch(noCacheUrl);
             
             if (response.ok) {
                 db = await response.json();
                 currentBankFile = jsonFile;
-                // 存入 LocalStorage，記錄題庫內容與名稱
                 saveToLocal();
                 localStorage.setItem('oj_v15_bank_name', btnText);
                 
                 document.getElementById('currentBankName').innerText = "📂 目前題庫: " + btnText;
                 
-                // 清除 URL 上可能的 probId 參數，回到首頁乾淨狀態
                 history.replaceState({ view: 'categories' }, '', window.location.pathname);
                 finishLoading();
             } else {
@@ -541,7 +559,6 @@
         showView('view-categories');
     }
 
-    // 回到大廳 (清除目前的暫存)
     function backToPortal() {
         if (confirm("回到大廳會清除目前的作答暫存，並允許您選擇其他題庫。確定嗎？")) {
             localStorage.removeItem('oj_v15_data');
@@ -550,16 +567,13 @@
         }
     }
 
-    // 重新載入目前的題庫 (強制刷新 JSON)
     function resetCurrentBank() {
         if (!currentBankFile) {
             alert("目前沒有指定的題庫來源，請先回大廳選擇！");
             return;
         }
         if (confirm("⚠️ 警告：這將會清除您目前在瀏覽器中的所有新增與作答紀錄，並重新從伺服器下載題庫。確定嗎？")) {
-            // 這裡模擬點擊了一次原本的按鈕抓取
             const bankName = localStorage.getItem('oj_v15_bank_name') || currentBankFile;
-            // 為了復用函數，我們偽造一個 event
             window.event = { target: { closest: () => ({ querySelector: () => ({ innerText: bankName }) }) } };
             fetchAndLoadBank(currentBankFile);
         }
@@ -568,7 +582,6 @@
     function handlePopState(event) {
         const state = event.state;
         if (!state) {
-            // 如果是在 Portal，就不做事；如果是在題庫內，就顯示分類
             const saved = localStorage.getItem('oj_v15_data');
             if(saved) {
                 currentCatId = null;
@@ -793,31 +806,78 @@
     }
 
     function toggleCatSortMode() { isCatSortMode = !isCatSortMode; updateSortUI(); renderCategoryList(); }
+    
     function renderCategoryList() {
-        const grid = document.getElementById('categoryGrid');
-        grid.innerHTML = '';
-        if (isCatSortMode) { grid.classList.add('sort-mode'); enableDragSort('categoryGrid', 'cat-card', saveCategoryOrder); } 
-        else { grid.classList.remove('sort-mode'); const newGrid = grid.cloneNode(false); grid.parentNode.replaceChild(newGrid, grid); }
-        
-        const currentGrid = document.getElementById('categoryGrid');
-        db.categories.forEach(cat => {
-            const probCount = db.problems.filter(p => p.catId === cat.id).length;
-            const card = document.createElement('div');
-            card.className = 'cat-card'; card.setAttribute('draggable', isCatSortMode); card.dataset.id = cat.id;
-            card.innerHTML = `<div class="cat-title">${cat.name}</div><div class="cat-count">${probCount} 題</div><div class="cat-actions"><button class="btn btn-outline btn-sm" onclick="editCategory(event, '${cat.id}')">✏️</button><button class="btn btn-outline btn-sm" onclick="deleteCategory(event, '${cat.id}')" style="color:#f44747; border-color:#f44747;">🗑️</button></div>`;
-            card.onclick = (e) => { if(!isCatSortMode && !e.target.closest('button')) openCategory(cat.id); };
-            currentGrid.appendChild(card);
+        const container = document.getElementById('groupedCategoryContainer');
+        container.innerHTML = '';
+
+        if (isCatSortMode) {
+            container.innerHTML = '<div style="color:var(--warning); text-align:center; margin-bottom:20px;">⚠️ 注意：目前群組模式下的拖曳排序為實驗功能，建議直接在 Admin 或 JSON 調整。</div>';
+        }
+
+        const groupNames = [...new Set(db.categories.map(c => c.group || "其他分類"))];
+
+        groupNames.forEach((groupName, index) => {
+            const section = document.createElement('div');
+            section.className = 'group-section';
+            section.innerHTML = `<div class="group-title">${groupName}</div>`;
+
+            const grid = document.createElement('div');
+            grid.className = 'cat-grid';
+            grid.id = `cat-grid-${index}`;
+            
+            if (isCatSortMode) { grid.classList.add('sort-mode'); enableDragSort(grid.id, 'cat-card', saveCategoryOrder); }
+
+            const filteredCats = db.categories.filter(c => (c.group || "其他分類") === groupName);
+            
+            filteredCats.forEach(cat => {
+                const probCount = db.problems.filter(p => p.catId === cat.id).length;
+                const card = document.createElement('div');
+                card.className = 'cat-card'; card.setAttribute('draggable', isCatSortMode); card.dataset.id = cat.id;
+                card.innerHTML = `<div class="cat-title">${cat.name}</div><div class="cat-count">${probCount} 題</div><div class="cat-actions"><button class="btn btn-outline btn-sm" onclick="editCategory(event, '${cat.id}')">✏️</button><button class="btn btn-outline btn-sm" onclick="deleteCategory(event, '${cat.id}')" style="color:#f44747; border-color:#f44747;">🗑️</button></div>`;
+                card.onclick = (e) => { if(!isCatSortMode && !e.target.closest('button')) openCategory(cat.id); };
+                grid.appendChild(card);
+            });
+
+            section.appendChild(grid);
+            container.appendChild(section);
         });
     }
-    function saveCategoryOrder() { const cards = document.querySelectorAll('#categoryGrid .cat-card'); const newOrder = []; cards.forEach(card => { const cat = db.categories.find(c => c.id === card.dataset.id); if(cat) newOrder.push(cat); }); db.categories = newOrder; saveToLocal(); }
-    function createCategory() { if(isCatSortMode) return; const name = prompt("新分類名稱："); if(name) { db.categories.push({ id: Date.now().toString(), name: name }); saveToLocal(); renderCategoryList(); } }
-    function editCategory(e, id) { e.stopPropagation(); const cat = db.categories.find(c => c.id === id); const newName = prompt("修改名稱：", cat.name); if(newName) { cat.name = newName; saveToLocal(); renderCategoryList(); } }
-    function deleteCategory(e, id) { e.stopPropagation(); if(!confirm("確定刪除？")) return; db.categories = db.categories.filter(c => c.id !== id); db.problems = db.problems.filter(p => p.catId !== id); saveToLocal(); renderCategoryList(); }
+
+    function saveCategoryOrder() { 
+        const cards = document.querySelectorAll('.cat-card'); 
+        const newOrder = []; 
+        cards.forEach(card => { const cat = db.categories.find(c => c.id === card.dataset.id); if(cat) newOrder.push(cat); }); 
+        db.categories = newOrder; saveToLocal(); 
+    }
+    
+    function createCategory() { 
+        if(isCatSortMode) return; 
+        const name = prompt("新分類名稱："); 
+        if(!name) return;
+        const group = prompt("所屬大群組名稱 (例如: 正式考試、平時練習)：", "其他分類");
+        db.categories.push({ id: Date.now().toString(), name: name, group: group || "其他分類" }); 
+        saveToLocal(); 
+        renderCategoryList(); 
+    }
+    function editCategory(e, id) { 
+        e.stopPropagation(); 
+        const cat = db.categories.find(c => c.id === id); 
+        const newName = prompt("修改分類名稱：", cat.name); 
+        if(newName) { 
+            const newGroup = prompt("修改所屬大群組名稱：", cat.group || "其他分類");
+            cat.name = newName; 
+            cat.group = newGroup || "其他分類";
+            saveToLocal(); 
+            renderCategoryList(); 
+        } 
+    }
+    function deleteCategory(e, id) { e.stopPropagation(); if(!confirm("確定刪除？此分類下的題目也會一併刪除。")) return; db.categories = db.categories.filter(c => c.id !== id); db.problems = db.problems.filter(p => p.catId !== id); saveToLocal(); renderCategoryList(); }
 
     function toggleProbSortMode() { isProbSortMode = !isProbSortMode; updateSortUI(); renderProblemList(); }
     function renderProblemList() {
         const cat = db.categories.find(c => c.id === currentCatId);
-        document.getElementById('currentCatTitle').innerText = cat ? cat.name : "";
+        document.getElementById('currentCatTitle').innerText = cat ? cat.name : "分類題庫";
         const container = document.getElementById('probListContainer');
         if (isProbSortMode) { container.classList.add('sort-mode'); } else { container.classList.remove('sort-mode'); const newCont = container.cloneNode(false); container.parentNode.replaceChild(newCont, container); }
         const currentContainer = document.getElementById('probListContainer');
@@ -830,14 +890,12 @@
             catProblems.forEach(p => {
                 const item = document.createElement('div');
                 item.className = 'prob-item'; item.setAttribute('draggable', isProbSortMode); item.dataset.id = p.id;
-                
                 item.onclick = (e) => { 
                     if(!isProbSortMode && !e.target.closest('button')) {
                         const baseUrl = window.location.href.split('?')[0];
                         window.open(`${baseUrl}?probId=${p.id}`, '_blank');
                     } 
                 };
-                
                 item.innerHTML = `
                     <div style="flex:1; overflow:hidden;">
                         <div class="prob-title">${p.title}</div>
@@ -879,11 +937,7 @@
         } 
     }
     
-    function editProblemInList(e, id) { 
-        e.stopPropagation(); 
-        currentProbId = id; 
-        goToAdmin(); 
-    }
+    function editProblemInList(e, id) { e.stopPropagation(); currentProbId = id; goToAdmin(); }
     function deleteProblemInList(e, id) { e.stopPropagation(); if(confirm("確定刪除？")) { db.problems = db.problems.filter(p => p.id !== id); saveToLocal(); renderProblemList(); } }
     function updateSortUI() {
         const catBtn = document.getElementById('catSortBtn'); const probBtn = document.getElementById('probSortBtn');
@@ -901,7 +955,6 @@
     
     function updateEditorForLang(lang) {
         const p = db.problems.find(x => x.id === currentProbId);
-        
         if (lang === 'cpp') {
             editor.session.setMode("ace/mode/c_cpp");
             editor.setValue(p.code_cpp || p.tpl_cpp || defaultTemplates.cpp, -1);
@@ -958,7 +1011,6 @@
     function changeAdminLang() {
         const newLang = document.getElementById('adminLangSelect').value;
         const currentText = document.getElementById('editTemplate').value;
-        
         adminTempTemplates[currentAdminLang] = currentText;
         currentAdminLang = newLang;
         document.getElementById('editTemplate').value = adminTempTemplates[newLang];
@@ -970,7 +1022,6 @@
         p.desc = document.getElementById('editDesc').value; 
         
         adminTempTemplates[currentAdminLang] = document.getElementById('editTemplate').value;
-        
         p.tpl_cpp = adminTempTemplates.cpp;
         p.tpl_python = adminTempTemplates.python;
         
@@ -980,7 +1031,6 @@
         for(let i=0; i<inputs.length; i++) p.testCases.push({ input: inputs[i].value, output: outputs[i].value }); 
         
         saveToLocal(); 
-        
         enterWorkspace(currentProbId, true); 
     }
     
@@ -1017,13 +1067,8 @@
 
     function copyModelAnswer() {
         const text = document.getElementById('modelAnswerInput');
-        if (!text.value.trim()) { 
-            alert("沒有示範解答可以複製！"); 
-            return; 
-        }
-        text.select();
-        document.execCommand('copy');
-        alert("✅ 示範解答已複製！");
+        if (!text.value.trim()) { alert("沒有示範解答可以複製！"); return; }
+        text.select(); document.execCommand('copy'); alert("✅ 示範解答已複製！");
     }
 
     async function pasteModelAnswer() {
@@ -1031,9 +1076,7 @@
             const text = await navigator.clipboard.readText();
             document.getElementById('modelAnswerInput').value = text;
             alert("✅ 已貼上解答！");
-        } catch (err) {
-            alert("⚠️ 瀏覽器阻擋或無法讀取剪貼簿，請直接在文字框中按 Ctrl+V 貼上。");
-        }
+        } catch (err) { alert("⚠️ 瀏覽器阻擋或無法讀取剪貼簿，請直接在文字框中按 Ctrl+V 貼上。"); }
     }
 
     async function runCode() {
