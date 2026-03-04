@@ -435,7 +435,7 @@
         } else {
             // 如果沒資料，嘗試從 GitHub (同資料夾) 抓取預設 problems.json
             try {
-                const response = await fetch('problems.json');
+                const response = await fetch('program-1.json');
                 if (response.ok) {
                     db = await response.json();
                     saveToLocal(); // 抓到後立刻存入 localStorage
