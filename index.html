@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web OJ V50 (Wandbox API 修正第二版)</title>
+    <title>Web OJ V50 (支援瀏覽器上下頁)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     <style>
         :root {
@@ -332,7 +332,7 @@
 
 <div id="backupModal" class="modal">
     <div class="modal-box" style="width:500px;">
-        <h3>📦 資料備份/還原 (V50)</h3>
+        <h3>📦 全站資料備份/還原 (V50)</h3>
         <textarea id="backupStr" style="width:100%; height:100px; margin-bottom:10px;" placeholder="Backup Code (Base64)..."></textarea>
         
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-bottom:15px;">
@@ -444,9 +444,46 @@
             db.categories.push({ id: Date.now().toString(), name: "基礎練習" });
             saveToLocal();
         }
-        renderCategoryList();
-        showView('view-categories');
+
+        // === 綁定瀏覽器上下頁事件 ===
+        window.addEventListener('popstate', handlePopState);
+        
+        // 檢查頁面重新整理時是否保留了歷史狀態
+        if (history.state && history.state.view) {
+            handlePopState({ state: history.state });
+        } else {
+            history.replaceState({ view: 'categories' }, '', '');
+            renderCategoryList();
+            showView('view-categories');
+        }
     };
+
+    // === 處理上下頁狀態還原的邏輯 ===
+    function handlePopState(event) {
+        const state = event.state;
+        if (!state) {
+            currentCatId = null;
+            renderCategoryList();
+            showView('view-categories');
+            return;
+        }
+
+        if (state.view === 'categories') {
+            currentCatId = null;
+            renderCategoryList();
+            showView('view-categories');
+        } else if (state.view === 'problem-list') {
+            currentCatId = state.catId;
+            renderProblemList();
+            showView('view-problem-list');
+        } else if (state.view === 'workspace') {
+            currentProbId = state.probId;
+            _enterWorkspaceInternal(state.probId, state.fromAdmin);
+        } else if (state.view === 'admin') {
+            currentProbId = state.probId;
+            _goToAdminInternal();
+        }
+    }
 
     function enableTabInTextarea(id) {
         const el = document.getElementById(id);
@@ -560,8 +597,83 @@
         if(viewId === 'view-workspace' && editor) setTimeout(() => editor.resize(), 50);
     }
 
-    function goCategoryList() { currentCatId = null; renderCategoryList(); showView('view-categories'); }
-    function goProblemList() { currentProbId = null; renderProblemList(); showView('view-problem-list'); }
+    // === 改寫為支援 History API 的導航函數 ===
+    function goCategoryList() { 
+        history.pushState({ view: 'categories' }, '', '');
+        currentCatId = null; renderCategoryList(); showView('view-categories'); 
+    }
+    
+    function openCategory(id) { 
+        history.pushState({ view: 'problem-list', catId: id }, '', '');
+        currentCatId = id; renderProblemList(); showView('view-problem-list'); 
+    }
+
+    function goProblemList() { 
+        history.pushState({ view: 'problem-list', catId: currentCatId }, '', '');
+        currentProbId = null; renderProblemList(); showView('view-problem-list'); 
+    }
+
+    function enterWorkspace(id, fromAdmin = false) {
+        history.pushState({ view: 'workspace', probId: id, fromAdmin: fromAdmin }, '', '');
+        _enterWorkspaceInternal(id, fromAdmin);
+    }
+
+    function _enterWorkspaceInternal(id, fromAdmin = false) {
+        currentProbId = id;
+        const p = db.problems.find(x => x.id === id);
+        
+        if (p.tpl_cpp === undefined) p.tpl_cpp = p.templateCode || defaultTemplates.cpp;
+        if (p.tpl_python === undefined) p.tpl_python = defaultTemplates.python;
+
+        if (!fromAdmin) {
+            // 從列表進入時，強制還原為預設範本
+            p.code_cpp = p.tpl_cpp;
+            p.code_python = p.tpl_python;
+            saveToLocal();
+        } else {
+            // 從設定頁返回時，保留作答進度
+            if (p.code_cpp === undefined) p.code_cpp = p.tpl_cpp;
+            if (p.code_python === undefined) p.code_python = p.tpl_python;
+        }
+        
+        document.getElementById('wsTitle').innerText = p.title;
+        const rawContent = p.desc || "";
+        document.getElementById('wsDesc').innerHTML = parseContent(rawContent);
+        
+        const lang = p.lastLang || 'cpp';
+        document.getElementById('langSelect').value = lang;
+        
+        updateEditorForLang(lang);
+        
+        document.getElementById('outputLogs').innerHTML = '<div style="color:#666;">準備就緒。</div>';
+        showView('view-workspace');
+    }
+
+    function goToAdmin() { 
+        history.pushState({ view: 'admin', probId: currentProbId }, '', '');
+        _goToAdminInternal();
+    }
+
+    function _goToAdminInternal() {
+        const p = db.problems.find(x => x.id === currentProbId); 
+        document.getElementById('editTitle').value = p.title; 
+        document.getElementById('editDesc').value = p.desc; 
+        
+        adminTempTemplates.cpp = p.tpl_cpp || p.templateCode || defaultTemplates.cpp;
+        adminTempTemplates.python = p.tpl_python || defaultTemplates.python;
+        
+        document.getElementById('adminLangSelect').value = 'cpp';
+        currentAdminLang = 'cpp';
+        document.getElementById('editTemplate').value = adminTempTemplates.cpp;
+
+        const c = document.getElementById('adminTestCases'); 
+        c.innerHTML = ''; 
+        (p.testCases || []).forEach(tc => addTestCaseUI(tc.input, tc.output)); 
+        
+        setTimeout(() => { document.querySelectorAll('#adminTestCases textarea').forEach(ta => autoResize(ta)); }, 0);
+        showView('view-admin'); 
+    }
+    // === 導航函數結束 ===
 
     function enableDragSort(containerId, itemClass, onUpdateOrder) {
         const container = document.getElementById(containerId);
@@ -604,7 +716,6 @@
     function createCategory() { if(isCatSortMode) return; const name = prompt("新分類名稱："); if(name) { db.categories.push({ id: Date.now().toString(), name: name }); saveToLocal(); renderCategoryList(); } }
     function editCategory(e, id) { e.stopPropagation(); const cat = db.categories.find(c => c.id === id); const newName = prompt("修改名稱：", cat.name); if(newName) { cat.name = newName; saveToLocal(); renderCategoryList(); } }
     function deleteCategory(e, id) { e.stopPropagation(); if(!confirm("確定刪除？")) return; db.categories = db.categories.filter(c => c.id !== id); db.problems = db.problems.filter(p => p.catId !== id); saveToLocal(); renderCategoryList(); }
-    function openCategory(id) { currentCatId = id; renderProblemList(); showView('view-problem-list'); }
 
     function toggleProbSortMode() { isProbSortMode = !isProbSortMode; updateSortUI(); renderProblemList(); }
     function renderProblemList() {
@@ -671,39 +782,6 @@
         if(catBtn) { catBtn.innerText = isCatSortMode ? "✅ 完成排序" : "⇅ 調整順序"; catBtn.className = isCatSortMode ? "btn btn-danger" : "btn btn-outline"; }
         if(probBtn) { probBtn.innerText = isProbSortMode ? "✅ 完成排序" : "⇅ 調整順序"; probBtn.className = isProbSortMode ? "btn btn-danger" : "btn btn-outline"; }
     }
-
-    // === V50: 更新 Workspace 進入邏輯 ===
-    function enterWorkspace(id, fromAdmin = false) {
-        currentProbId = id;
-        const p = db.problems.find(x => x.id === id);
-        
-        if (p.tpl_cpp === undefined) p.tpl_cpp = p.templateCode || defaultTemplates.cpp;
-        if (p.tpl_python === undefined) p.tpl_python = defaultTemplates.python;
-
-        if (!fromAdmin) {
-            // 從列表進入時，強制還原為預設範本
-            p.code_cpp = p.tpl_cpp;
-            p.code_python = p.tpl_python;
-            saveToLocal();
-        } else {
-            // 從設定頁返回時，保留作答進度
-            if (p.code_cpp === undefined) p.code_cpp = p.tpl_cpp;
-            if (p.code_python === undefined) p.code_python = p.tpl_python;
-        }
-        
-        document.getElementById('wsTitle').innerText = p.title;
-        const rawContent = p.desc || "";
-        document.getElementById('wsDesc').innerHTML = parseContent(rawContent);
-        
-        const lang = p.lastLang || 'cpp';
-        document.getElementById('langSelect').value = lang;
-        
-        updateEditorForLang(lang);
-        
-        document.getElementById('outputLogs').innerHTML = '<div style="color:#666;">準備就緒。</div>';
-        showView('view-workspace');
-    }
-    // =====================================
     
     function changeWorkspaceLang() {
         const p = db.problems.find(x => x.id === currentProbId);
@@ -768,26 +846,6 @@
         if(!code) { alert("沒有程式碼可以複製！"); return; }
         navigator.clipboard.writeText(code).then(() => { alert("✅ 程式碼已複製到剪貼簿！"); }).catch(() => { const ta = document.createElement("textarea"); ta.value = code; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); alert("✅ 程式碼已複製到剪貼簿！"); });
     }
-
-    function goToAdmin() { 
-        const p = db.problems.find(x => x.id === currentProbId); 
-        document.getElementById('editTitle').value = p.title; 
-        document.getElementById('editDesc').value = p.desc; 
-        
-        adminTempTemplates.cpp = p.tpl_cpp || p.templateCode || defaultTemplates.cpp;
-        adminTempTemplates.python = p.tpl_python || defaultTemplates.python;
-        
-        document.getElementById('adminLangSelect').value = 'cpp';
-        currentAdminLang = 'cpp';
-        document.getElementById('editTemplate').value = adminTempTemplates.cpp;
-
-        const c = document.getElementById('adminTestCases'); 
-        c.innerHTML = ''; 
-        (p.testCases || []).forEach(tc => addTestCaseUI(tc.input, tc.output)); 
-        
-        setTimeout(() => { document.querySelectorAll('#adminTestCases textarea').forEach(ta => autoResize(ta)); }, 0);
-        showView('view-admin'); 
-    }
     
     function changeAdminLang() {
         const newLang = document.getElementById('adminLangSelect').value;
@@ -815,7 +873,6 @@
         
         saveToLocal(); 
         
-        // === V50: 帶入 true，告知系統保留使用者的作答進度 ===
         enterWorkspace(currentProbId, true); 
     }
     
@@ -1018,5 +1075,4 @@
     }
 </script>
 </body>
-
 </html>
