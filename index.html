@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web OJ V51 (瀏覽器版)</title>
+    <title>Web OJ V52 (JSON 自動載入完整版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
     <style>
         :root {
-            /* === V51: Color Variables === */
+            /* === V52: Color Variables === */
             --bg-page-light: #f3f4f6;
             --bg-pane-light: #e0e0e0;   
             --text-pane-light: #1f2937; 
@@ -57,6 +57,8 @@
 
         .btn-copy { background-color: #375a7f; color: white; }
         .btn-copy:hover { background-color: #2b4764; }
+        .btn-paste { background-color: #4b5563; color: white; } 
+        .btn-paste:hover { background-color: #374151; }
         .btn-reset { background-color: #6c757d; color: white; }
         .btn-reset:hover { background-color: #5a6268; }
         .btn-success { background: var(--success); color: white; }
@@ -129,7 +131,8 @@
         /* === View 3: Workspace === */
         #view-workspace { display: none; height: 100%; flex-direction: column; background: var(--bg-page-light); }
         .ws-header { 
-            height: 50px; background: var(--bg-header-blue); border-bottom: 1px solid rgba(0,0,0,0.1); 
+            height: 60px; 
+            background: var(--bg-header-blue); border-bottom: 1px solid rgba(0,0,0,0.1); 
             display: flex; align-items: center; padding: 0 20px; justify-content: space-between; 
             color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10;
         }
@@ -242,7 +245,7 @@
 <div id="view-workspace">
     <div class="ws-header">
         <div style="display:flex; align-items:center;">
-            <span id="wsTitle" style="font-weight:bold; font-size:1.1rem;">題目名稱</span>
+            <span id="wsTitle" style="font-weight:bold; font-size:1.5rem;">題目名稱</span>
         </div>
         <div style="display:flex; gap:10px;">
             <button class="btn btn-ai" onclick="openAIHelperModal()">🤖 AI 診斷 (外連)</button>
@@ -330,7 +333,7 @@
 
 <div id="backupModal" class="modal">
     <div class="modal-box" style="width:500px;">
-        <h3>📦 全站資料備份/還原 (V51)</h3>
+        <h3>📦 全站資料備份/還原 (V52)</h3>
         <textarea id="backupStr" style="width:100%; height:100px; margin-bottom:10px;" placeholder="Backup Code (Base64)..."></textarea>
         
         <div style="display:flex; justify-content:flex-end; gap:10px; margin-bottom:15px;">
@@ -353,10 +356,11 @@
     <div class="modal-box" style="width:600px; max-width:90%; height:500px;">
         <h3>🔑 設定示範解答 (Model Answer)</h3>
         <textarea id="modelAnswerInput" style="flex:1; resize:none; font-family:'Consolas',monospace; background:#1e1e1e; color:#d4d4d4; border:1px solid #333; padding:10px;" placeholder="#include <iostream>..." spellcheck="false"></textarea>
-        <div style="display:flex; justify-content:space-between; margin-top:10px;">
-            <button class="btn btn-copy" onclick="copyModelAnswer()">📋 複製解答</button>
+        <div style="display:flex; justify-content:flex-end; margin-top:10px;">
             <div style="display:flex; gap:10px;">
                 <button class="btn btn-outline" onclick="document.getElementById('modelAnswerModal').style.display='none'">取消</button>
+                <button class="btn btn-copy" onclick="copyModelAnswer()">📋 複製解答</button>
+                <button class="btn btn-paste" onclick="pasteModelAnswer()">📋 貼上解答</button>
                 <button class="btn btn-primary" onclick="saveModelAnswerFromModal()">✅ 暫存設定</button>
             </div>
         </div>
@@ -386,7 +390,7 @@
     let currentProbId = null;
     let isLocalMode = false;
     
-    // V48/V49/V50/V51: Multi-lang defaults
+    // Multi-lang defaults
     const defaultTemplates = {
         cpp: `#include <iostream>\nusing namespace std;\n\nint main() {\n    // C++ Solution\n    \n    return 0;\n}`,
         python: `import sys\n\n# Python Solution\ndef main():\n    # Read input from stdin\n    lines = sys.stdin.read().splitlines()\n    # Write logic here\n    pass\n\nif __name__ == "__main__":\n    main()`
@@ -401,7 +405,8 @@
     let adminTempTemplates = { cpp: "", python: "" };
     let currentAdminLang = 'cpp';
 
-    window.onload = function() {
+    // === V52: JSON 自動載入與初始化 ===
+    window.onload = async function() {
         editor = ace.edit("editor");
         editor.setTheme("ace/theme/twilight");
         editor.session.setMode("ace/mode/c_cpp");
@@ -422,43 +427,47 @@
         enableTabInTextarea('editTemplate');
         enableTabInTextarea('modelAnswerInput');
 
+        // 先檢查 LocalStorage 是否有資料
         const saved = localStorage.getItem('oj_v15_data');
         if (saved) {
             db = JSON.parse(saved);
+            finishLoading();
         } else {
-            // Legacy Migration (One time)
-            const oldData = localStorage.getItem('oj_v8_data');
-            if (oldData) {
-                const oldProbs = JSON.parse(oldData);
-                if (oldProbs.length > 0) {
-                    const newCatId = Date.now().toString();
-                    db.categories.push({ id: newCatId, name: "未分類題目 (舊資料)" });
-                    oldProbs.forEach(p => { p.catId = newCatId; db.problems.push(p); });
-                    saveToLocal();
+            // 如果沒資料，嘗試從 GitHub (同資料夾) 抓取預設 problems.json
+            try {
+                const response = await fetch('problems.json');
+                if (response.ok) {
+                    db = await response.json();
+                    saveToLocal(); // 抓到後立刻存入 localStorage
+                    finishLoading();
+                } else {
+                    throw new Error("找不到 problems.json");
                 }
+            } catch (err) {
+                console.warn("無法載入外部題庫，建立空白初始值。");
+                db = { categories: [{ id: Date.now().toString(), name: "基礎練習" }], problems: [] };
+                saveToLocal();
+                finishLoading();
             }
         }
-        if (db.categories.length === 0) {
-            db.categories.push({ id: Date.now().toString(), name: "基礎練習" });
-            saveToLocal();
-        }
+    };
 
+    function finishLoading() {
         // === 綁定瀏覽器上下頁事件 ===
         window.addEventListener('popstate', handlePopState);
         
-        // === V51: 檢查是否有帶入網址參數 (開啟新分頁作答) ===
+        // 檢查是否有帶入網址參數 (開啟新分頁作答)
         const urlParams = new URLSearchParams(window.location.search);
         const probIdParam = urlParams.get('probId');
 
         if (probIdParam) {
-            // 如果是在新分頁開啟特定題目
             const targetProblem = db.problems.find(x => x.id === probIdParam);
             if (targetProblem) {
                 history.replaceState({ view: 'workspace', probId: probIdParam, fromAdmin: false }, '', '');
                 _enterWorkspaceInternal(probIdParam, false);
             } else {
                 alert("找不到該題目！將返回首頁。");
-                window.location.href = window.location.pathname; // 返回無參數首頁
+                window.location.href = window.location.pathname; 
             }
         } else {
             // 正常載入流程 (首頁)
@@ -470,7 +479,7 @@
                 showView('view-categories');
             }
         }
-    };
+    }
 
     // === 處理上下頁狀態還原的邏輯 ===
     function handlePopState(event) {
@@ -524,7 +533,7 @@
             if (confirm("再次確認：您真的要刪除所有資料嗎？")) {
                 localStorage.removeItem('oj_v15_data');
                 localStorage.removeItem('oj_v8_data'); 
-                window.location.href = window.location.pathname; // 重製後回到首頁
+                window.location.href = window.location.pathname; 
             }
         }
     }
@@ -737,7 +746,6 @@
                 const item = document.createElement('div');
                 item.className = 'prob-item'; item.setAttribute('draggable', isProbSortMode); item.dataset.id = p.id;
                 
-                // === V51: 點擊開啟新分頁 (帶入網址參數) ===
                 item.onclick = (e) => { 
                     if(!isProbSortMode && !e.target.closest('button')) {
                         const baseUrl = window.location.href.split('?')[0];
@@ -788,7 +796,6 @@
     
     function editProblemInList(e, id) { 
         e.stopPropagation(); 
-        // 編輯時我們依然保持在目前分頁開啟設定，避免過度開新分頁
         currentProbId = id; 
         goToAdmin(); 
     }
@@ -932,6 +939,16 @@
         text.select();
         document.execCommand('copy');
         alert("✅ 示範解答已複製！");
+    }
+
+    async function pasteModelAnswer() {
+        try {
+            const text = await navigator.clipboard.readText();
+            document.getElementById('modelAnswerInput').value = text;
+            alert("✅ 已貼上解答！");
+        } catch (err) {
+            alert("⚠️ 瀏覽器阻擋或無法讀取剪貼簿，請直接在文字框中按 Ctrl+V 貼上。");
+        }
     }
 
     async function runCode() {
